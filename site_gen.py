@@ -77,9 +77,17 @@ def sections(j):
     ]
 
 ICON = "/icon.svg"
+LOGO = "https://www.teamambassador.com/Images/logo.png"
+N_JOBS = 0
+
+def navlinks(on):
+    items = (("jobs", "/", "All jobs"), ("offices", "/#branches", "Offices"), ("locations", "/locations/", "Locations"))
+    return "".join(f'<a class="tab{" on" if k == on else ""}" href="{u}">{t}</a>' for k, u, t in items) + \
+        f'<a class="nbtn" href="{APPLY_URL}" rel="noopener noreferrer">Apply online</a>'
+
 ORG_LD = {"@type":"Organization","name":ORG,"url":ORG_URL,"sameAs":ORG_URL,"logo":BASE+ICON}
 
-def page(title, desc, path, body, head_extra="", crumbs=None):
+def page(title, desc, path, body, head_extra="", crumbs=None, nav="jobs"):
     bc = ""
     if crumbs:
         items = [{"@type":"ListItem","position":i+1,"name":n,"item":BASE+u} for i,(n,u) in enumerate(crumbs)]
@@ -96,25 +104,28 @@ def page(title, desc, path, body, head_extra="", crumbs=None):
 <meta property="og:url" content="{BASE}{path}"><meta property="og:type" content="website"><meta property="og:site_name" content="{ORG} Jobs">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="{ICON}" type="image/svg+xml">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' https://www.teamambassador.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="stylesheet" href="/style.css">
 {head_extra}
 </head><body>
-<header><div class="wrap"><a class="logo" href="/">Ambassador Personnel Jobs</a>
-<nav><a href="/#branches">Offices</a><a href="/locations/">Locations</a><a href="{ORG_URL}" rel="noopener noreferrer">teamambassador.com</a></nav></div></header>
-<main class="wrap">{bc}{body}</main>
-<footer><div class="wrap">{ORG} is an equal opportunity employer. Jobs updated {TODAY}.</div></footer>
+<div class="topbar"><span><b>Now hiring</b> · {N_JOBS} open jobs in {N_STATES} states</span><span>Jobs updated {TODAY}</span></div>
+<header class="masthead"><a href="/" class="brand"><img src="{LOGO}" alt="{ORG}" width="210" height="56"></a>
+<p class="tagline">Delivering <span>STAFFING &amp; HR</span> Results</p></header>
+<nav class="navbar" aria-label="Main"><div class="navrow">{navlinks(nav)}</div></nav>
+<main>{bc}{body}</main>
+<footer>{ORG} is an equal opportunity employer. Jobs updated {TODAY}.</footer>
 </body></html>"""
 
 def card(j, show_branch=False):
-    tag = '<span class="tag">Direct Hire</span>' if j["type"] == "Direct Hire" else ""
     extra = f" · {e(branch_label(j['branch']))} office" if show_branch else ""
     meta = f"{e(j['city'])}, {e(j['state'])}" + (f" · {e(j['shift'])}" if j["shift"] else "") + extra
     search = e(f"{j['title']} {j['city']} {j['state']} {STATES.get(j['state'],'')} {j['zip']} {branch_label(j['branch'])}".lower())
+    chips = "".join(f'<span class="chip{c}">{e(v)}</span>' for v, c in
+        ((j["pay"], " ok"), (j["type"], " full" if j["type"] == "Direct Hire" else ""), (j["shift"], "")) if v)
     return (f'<a class="card" href="{job_url(j)}" data-s="{search}" data-st="{e(j["state"])}" data-ty="{e(j["type"])}">'
-            f'<div><h3>{e(j["title"])}{tag}</h3><div class="meta">{meta}</div></div>'
-            f'<div class="pay">{e(j["pay"])}</div></a>')
+            f'<h3>{e(j["title"])}</h3><div class="sub">{meta}</div><div class="chips">{chips}</div>'
+            f'<span class="btns"><span class="btn primary">View job</span></span></a>')
 
 def itemlist(jobs):
     return ld({"@context":"https://schema.org","@type":"ItemList",
@@ -155,7 +166,7 @@ def filters(jobs):
             f'<p class="count" id="n">{len(jobs)} open jobs</p>')
 
 def main():
-    global TODAY, N_STATES
+    global TODAY, N_STATES, N_JOBS
     with (ROOT / "jobs.tsv").open(encoding="utf-8") as f:
         jobs = list(csv.DictReader(f, delimiter="\t"))
     TODAY = datetime.date.today().isoformat()
@@ -181,7 +192,7 @@ def main():
     by_state = defaultdict(list); by_city = defaultdict(list)
     for j in jobs:
         by_state[j["state"]].append(j); by_city[(j["state"], j["city"])].append(j)
-    N_STATES = len(by_state)
+    N_STATES = len(by_state); N_JOBS = len(jobs)
     lastmod = {}  # url -> newest first-posted date of the jobs on that page
     def seen(u, js):
         lastmod[u] = max((x.get("posted") or TODAY) for x in js)
@@ -192,7 +203,7 @@ def main():
     chips = "".join(f'<a class="chip" href="{branch_url(b)}">{e(branch_label(b))} <b>{len(by_branch[b])}</b></a>' for b in branches)
     groups = "".join(
         f'<section class="group" id="{slug(branch_label(b))}"><h2><a href="{branch_url(b)}">{e(branch_label(b))} office</a> '
-        f'<span class="n">{len(by_branch[b])}</span></h2><div class="list">'
+        f'<span class="n">{len(by_branch[b])}</span></h2><div class="grid">'
         + "".join(card(j) for j in sorted(by_branch[b], key=key)) + "</div></section>" for b in branches)
     home_ld = ld({"@context":"https://schema.org","@type":"WebSite",
         "name":f"{ORG} Jobs","url":BASE+"/","publisher":ORG_LD}) + ld({"@context":"https://schema.org", **ORG_LD})
@@ -200,9 +211,9 @@ def main():
         for st in sorted(by_state, key=lambda s: STATES.get(s, s)))
     write("/", page(f"Jobs at {ORG} | {len(jobs)} Openings Hiring Now",
         f"{len(jobs)} open jobs with {ORG} — warehouse, production, maintenance, drivers, office and more. Browse by office or location and apply online.",
-        "/", f'<section class="hero"><h1>Find your next job</h1><p>{len(jobs)} temp-to-hire and direct-hire openings across {len(branches)} offices.</p></section>'
-        + filters(jobs) + f'<h2 class="more">Browse by office</h2><div class="chips" id="branches">{chips}</div>'
-        + f'<h2 class="more">Browse by state</h2><ul class="states">{home_states}</ul>' + groups + FILTER_JS, home_ld))
+        "/", f'<h1 class="section">Find your next job</h1><p class="sub">{len(jobs)} temp-to-hire and direct-hire openings across {len(branches)} offices.</p>'
+        + filters(jobs) + f'<h2 class="section">Browse by office</h2><div class="chips" id="branches">{chips}</div>'
+        + f'<h2 class="section">Browse by state</h2><ul class="states">{home_states}</ul>' + groups + FILTER_JS, home_ld))
 
     # Branch pages
     for b in branches:
@@ -211,8 +222,8 @@ def main():
         write(u, page(f"{lbl} Office Jobs | {ORG}",
             f"{len(js)} open jobs from the {ORG} {lbl} office in {', '.join(cities[:6])}. Apply online today.",
             u, f'<h1>{e(lbl)} office jobs</h1><p class="sub">{len(js)} openings · {e(", ".join(cities))}</p>'
-            + filters(js) + '<section class="group"><div class="list">' + "".join(card(j) for j in js) + "</div></section>" + FILTER_JS,
-            itemlist(js), [("Jobs","/"),(f"{lbl} office", u)]))
+            + filters(js) + '<section class="group"><div class="grid">' + "".join(card(j) for j in js) + "</div></section>" + FILTER_JS,
+            itemlist(js), [("Jobs","/"),(f"{lbl} office", u)], "offices"))
 
     # Location pages
     st_links = ""
@@ -224,18 +235,18 @@ def main():
         write(u, page(f"Jobs in {name} | {ORG}",
             f"{len(js)} open jobs in {name}: {', '.join(cities[:8])}. Apply online with {ORG}.",
             u, f'<h1>Jobs in {e(name)}</h1><p class="sub">{len(js)} openings in {len(cities)} cities</p><div class="chips">{city_chips}</div>'
-            + filters(js) + '<section class="group"><div class="list">' + "".join(card(j, True) for j in js) + "</div></section>" + FILTER_JS,
-            itemlist(js), [("Jobs","/"),("Locations","/locations/"),(name,u)]))
+            + filters(js) + '<section class="group"><div class="grid">' + "".join(card(j, True) for j in js) + "</div></section>" + FILTER_JS,
+            itemlist(js), [("Jobs","/"),("Locations","/locations/"),(name,u)], "locations"))
         for c in cities:
             cj = sorted(by_city[(st,c)], key=key); cu = city_url(cj[0]); urls.append(cu); seen(cu, cj)
             titles = sorted({j["title"] for j in cj})
             write(cu, page(f"Jobs in {c}, {st} | {ORG}",
                 f"{len(cj)} open jobs in {c}, {st}: {', '.join(titles[:6])}. Apply online with {ORG}.",
                 cu, f'<h1>Jobs in {e(c)}, {e(st)}</h1><p class="sub">{len(cj)} openings</p>'
-                + '<section class="group"><div class="list">' + "".join(card(j, True) for j in cj) + "</div></section>",
-                itemlist(cj), [("Jobs","/"),("Locations","/locations/"),(name,u),(c,cu)]))
+                + '<section class="group"><div class="grid">' + "".join(card(j, True) for j in cj) + "</div></section>",
+                itemlist(cj), [("Jobs","/"),("Locations","/locations/"),(name,u),(c,cu)], "locations"))
     write("/locations/", page(f"Jobs by Location | {ORG}", f"Browse {ORG} jobs by state and city.",
-        "/locations/", f'<h1>Jobs by location</h1><ul class="states">{st_links}</ul>', "", [("Jobs","/"),("Locations","/locations/")]))
+        "/locations/", f'<h1>Jobs by location</h1><ul class="states">{st_links}</ul>', "", [("Jobs","/"),("Locations","/locations/")], "locations"))
 
     # Job pages
     for j in jobs:
@@ -244,14 +255,14 @@ def main():
         facts = "".join(f"<div><b>{k}</b>{e(v)}</div>" for k, v in (("Pay", j["pay"]), ("Type", j["type"]),
             ("Shift", j["shift"]), ("Location", f"{where} {j['zip']}".strip()), ("Office", branch_label(j["branch"]))) if v)
         more = [x for x in by_city[(j["state"], j["city"])] if x is not j][:6]
-        more_html = ('<h2 class="more">More jobs in ' + e(where) + '</h2><div class="list">' + "".join(card(x) for x in more) + "</div>") if more else ""
+        more_html = ('<h2 class="section">More jobs in ' + e(where) + '</h2><div class="grid">' + "".join(card(x) for x in more) + "</div>") if more else ""
         write(u, page(f"{j['title']} – {where} | {ORG}", desc_text(j), u,
             f'<article class="job"><h1>{e(j["title"])}</h1><div class="meta">{e(where)}'
-            + ('<span class="tag">Direct Hire</span>' if j["type"] == "Direct Hire" else "")
+            + (' <span class="chip full">Direct Hire</span>' if j["type"] == "Direct Hire" else "")
             + f'</div><div class="facts">{facts}</div>'
-            f'<p><a class="btn" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
+            f'<p><a class="btn primary" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
             + "".join(f"<h2>{e(h)}</h2><p>{e(t)}</p>" for h, t in sections(j))
-            + f'<p><a class="btn" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
+            + f'<p><a class="btn primary" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
             f'<p class="meta">Job ID {e(j["id"])} · Mention this ID when you apply.</p></article>' + more_html,
             jobposting(j, valid),
             [("Jobs","/"),(STATES.get(j["state"], j["state"]), state_url(j["state"])),(j["city"], city_url(j)),(j["title"], u)]))
