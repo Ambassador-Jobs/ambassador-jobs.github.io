@@ -14,17 +14,19 @@ Every job, branch office, state and city has its own static HTML page so Google 
 | Sitemap / XML job feed | `/sitemap.xml`, `/feed.xml` |
 
 ## How it works
-- `jobs.tsv` holds the public job data, one job per line (opens in Excel): title, city/state/ZIP, pay, type, shift, branch, openings, first-posted date.
-- `site_gen.py` turns `jobs.tsv` into the full site.
-- `.github/workflows/pages.yml` runs `site_gen.py` and publishes to GitHub Pages on every push to `main`.
+- **Job Site Feed** (a separate Google Sheet, published read-only as CSV) is where jobs are managed: untick **Show** to hide a job, edit a title, add or remove rows.
+- Every hour (or on demand with **Actions -> Build and publish job site -> Run workflow**), `sync_feed.py` pulls the feed, validates it, and writes `jobs.tsv`.
+- `site_gen.py` turns `jobs.tsv` into the full site, and GitHub Pages publishes it.
+- If the feed isn't set up yet (`FEED_URL` repository variable empty), the committed `jobs.tsv` is used.
 
-## Updating jobs
-1. In the Ambassador_Order_Board sheet, open the **Orders** tab → File → Download → CSV.
-2. Run `python3 build.py Orders.csv` in this folder (it keeps each job's first-posted date).
-3. Upload the new `jobs.tsv` here (Add file → Upload files → Commit). The site rebuilds itself in about a minute.
-
-Filled jobs drop off automatically, and their pages return "This job has been filled".
-
-Only orders with open headcount are published, and only public-safe fields: customer names, street addresses, recruiters, req numbers and notes never leave the sheet.
+## Security
+- The Order Board is never published or connected. Only the separate feed sheet is published, and it holds only public job-ad fields.
+- No passwords, tokens or API keys exist anywhere in this setup.
+- `sync_feed.py` only reads whitelisted columns, checks every field against a strict pattern, rejects HTML/script characters, and drops any row that looks like it contains an email, phone number, SSN or link.
+- If the feed is broken, empty or rejected, nothing is deployed: the live site stays exactly as it was.
+- Pages have a Content-Security-Policy (no inline or outside scripts), and the hidden Google job data is escaped so it can't inject code.
+- The workflow has no default permissions, uses only GitHub's own actions pinned to exact commit SHAs, and doesn't keep repository credentials.
+- Repository settings: only GitHub-created actions allowed, SHA pinning required, default workflow token read-only.
+- Turn on two-factor authentication for the account that owns this repo.
 
 To change where **Apply now** goes, edit `APPLY_URL` at the top of `site_gen.py`.
