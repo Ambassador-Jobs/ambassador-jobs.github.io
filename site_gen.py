@@ -12,7 +12,7 @@ Every page Google needs is real HTML (no JavaScript required to see a job):
 Run by the GitHub Actions workflow on every push; run locally with:
   python3 site_gen.py && python3 -m http.server -d _site
 """
-import csv, json, re, shutil, datetime, html
+import csv, json, re, shutil, datetime, html, hashlib
 from collections import defaultdict
 from pathlib import Path
 
@@ -79,6 +79,7 @@ def sections(j):
 ICON = "/icon.svg"
 LOGO = "https://www.teamambassador.com/Images/logo.png"
 N_JOBS = 0
+ASSET_V = hashlib.sha1((ROOT / "style.css").read_bytes() + (ROOT / "search.js").read_bytes()).hexdigest()[:8]  # cache-buster
 
 def navlinks(on):
     items = (("jobs", "/", "All jobs"), ("offices", "/#branches", "Offices"), ("locations", "/locations/", "Locations"))
@@ -106,7 +107,7 @@ def page(title, desc, path, body, head_extra="", crumbs=None, nav="jobs"):
 <link rel="icon" href="{ICON}" type="image/svg+xml">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' https://www.teamambassador.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v={ASSET_V}">
 {head_extra}
 </head><body>
 <div class="topbar"><span><b>Now hiring</b> · {N_JOBS} open jobs in {N_STATES} states</span><span>Jobs updated {TODAY}</span></div>
@@ -153,7 +154,7 @@ def jobposting(j, valid):
             "value":{"@type":"QuantitativeValue","value":j["payValue"],"unitText":"HOUR"}}
     return ld(data)
 
-FILTER_JS = '<script src="/search.js" defer></script>'
+FILTER_JS = f'<script src="/search.js?v={ASSET_V}" defer></script>'
 
 def filters(jobs):
     sts = sorted({j["state"] for j in jobs})
