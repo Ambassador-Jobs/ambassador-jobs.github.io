@@ -142,6 +142,8 @@ def main():
     OUT.mkdir()
     shutil.copy(ROOT / "style.css", OUT / "style.css")
     shutil.copy(ROOT / "search.js", OUT / "search.js")
+    for f in ROOT.glob("google*.html"):  # Google Search Console verification file(s)
+        shutil.copy(f, OUT / f.name)
     (OUT / ".nojekyll").write_text("")
 
     by_branch = defaultdict(list)
