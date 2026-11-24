@@ -30,6 +30,11 @@ STATES = {"AL":"Alabama","AR":"Arkansas","CT":"Connecticut","DE":"Delaware","FL"
   "MA":"Massachusetts","MN":"Minnesota","NE":"Nebraska","NV":"Nevada","OR":"Oregon","UT":"Utah","WA":"Washington"}
 
 e = lambda s: html.escape(str(s or ""), quote=True)
+
+def ld(obj):
+    """JSON-LD that can never break out of its <script> tag."""
+    s = json.dumps(obj).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return '<script type="application/ld+json">' + s + "</script>"
 slug = lambda s: re.sub(r"[^a-z0-9]+", "-", str(s).lower()).strip("-")
 
 def branch_label(b):
@@ -52,8 +57,7 @@ def page(title, desc, path, body, head_extra="", crumbs=None):
     bc = ""
     if crumbs:
         items = [{"@type":"ListItem","position":i+1,"name":n,"item":BASE+u} for i,(n,u) in enumerate(crumbs)]
-        head_extra += '<script type="application/ld+json">' + json.dumps(
-            {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":items}) + "</script>"
+        head_extra += ld({"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":items})
         bc = '<nav class="crumbs">' + " › ".join(
             f'<a href="{e(u)}">{e(n)}</a>' if i < len(crumbs)-1 else e(n) for i,(n,u) in enumerate(crumbs)) + "</nav>"
     return f"""<!DOCTYPE html>
@@ -64,11 +68,13 @@ def page(title, desc, path, body, head_extra="", crumbs=None):
 <link rel="canonical" href="{BASE}{path}">
 <meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc[:158])}">
 <meta property="og:url" content="{BASE}{path}"><meta property="og:type" content="website">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="stylesheet" href="/style.css">
 {head_extra}
 </head><body>
 <header><div class="wrap"><a class="logo" href="/">Ambassador Personnel Jobs</a>
-<nav><a href="/#branches">Offices</a><a href="/locations/">Locations</a><a href="{ORG_URL}" rel="noopener">teamambassador.com</a></nav></div></header>
+<nav><a href="/#branches">Offices</a><a href="/locations/">Locations</a><a href="{ORG_URL}" rel="noopener noreferrer">teamambassador.com</a></nav></div></header>
 <main class="wrap">{bc}{body}</main>
 <footer><div class="wrap">{ORG} is an equal opportunity employer. Jobs updated {TODAY}.</div></footer>
 </body></html>"""
@@ -83,8 +89,8 @@ def card(j, show_branch=False):
             f'<div class="pay">{e(j["pay"])}</div></a>')
 
 def itemlist(jobs):
-    return '<script type="application/ld+json">' + json.dumps({"@context":"https://schema.org","@type":"ItemList",
-        "itemListElement":[{"@type":"ListItem","position":i+1,"url":BASE+job_url(j)} for i,j in enumerate(jobs)]}) + "</script>"
+    return ld({"@context":"https://schema.org","@type":"ItemList",
+        "itemListElement":[{"@type":"ListItem","position":i+1,"url":BASE+job_url(j)} for i,j in enumerate(jobs)]})
 
 def write(path, text):
     p = OUT / path.lstrip("/")
@@ -93,7 +99,7 @@ def write(path, text):
     p.write_text(text, encoding="utf-8")
 
 def jobposting(j, valid):
-    ld = {"@context":"https://schema.org/","@type":"JobPosting",
+    data = {"@context":"https://schema.org/","@type":"JobPosting",
       "title": j["title"],
       "description": f"<p>{e(desc_text(j))}</p><p>Apply online and an {ORG} recruiter will follow up with the schedule, requirements and start date.</p>",
       "identifier": {"@type":"PropertyValue","name":ORG,"value":j["id"]},
@@ -104,26 +110,16 @@ def jobposting(j, valid):
           "addressRegion":j["state"],"addressCountry":"US", **({"postalCode":j["zip"]} if j["zip"] else {})}},
       "totalJobOpenings": j["openings"], "directApply": False, "url": BASE + job_url(j)}
     if j.get("payValue"):
-        ld["baseSalary"] = {"@type":"MonetaryAmount","currency":"USD",
+        data["baseSalary"] = {"@type":"MonetaryAmount","currency":"USD",
             "value":{"@type":"QuantitativeValue","value":j["payValue"],"unitText":"HOUR"}}
-    return '<script type="application/ld+json">' + json.dumps(ld) + "</script>"
+    return ld(data)
 
-FILTER_JS = """<script>
-(()=>{const q=document.getElementById('q'),st=document.getElementById('st'),ty=document.getElementById('ty'),n=document.getElementById('n');
-const cards=[...document.querySelectorAll('.card')],groups=[...document.querySelectorAll('.group')];
-const p=new URLSearchParams(location.search);if(p.get('q'))q.value=p.get('q');if(p.get('state'))st.value=p.get('state');if(p.get('type'))ty.value=p.get('type');
-function run(){const t=q.value.trim().toLowerCase().split(/\\s+/).filter(Boolean),s=st.value,y=ty.value;let c=0;
-cards.forEach(a=>{const ok=t.every(w=>a.dataset.s.includes(w))&&(!s||a.dataset.st===s)&&(!y||a.dataset.ty===y);a.hidden=!ok;if(ok)c++});
-groups.forEach(g=>g.hidden=!g.querySelector('.card:not([hidden])'));n.textContent=c+' open job'+(c===1?'':'s');
-const u=new URLSearchParams();if(q.value.trim())u.set('q',q.value.trim());if(s)u.set('state',s);if(y)u.set('type',y);
-history.replaceState(null,'',u.toString()?'?'+u:location.pathname)}
-[q,st,ty].forEach(x=>x.addEventListener('input',run));run()})();
-</script>"""
+FILTER_JS = '<script src="/search.js" defer></script>'
 
 def filters(jobs):
     sts = sorted({j["state"] for j in jobs})
     opts = "".join(f'<option value="{s}">{e(STATES.get(s,s))}</option>' for s in sts)
-    return (f'<form class="filters" role="search" action="/" onsubmit="return false">'
+    return (f'<form class="filters" role="search" action="/">'
             f'<input id="q" name="q" type="search" placeholder="Search job title, city, ZIP or office" aria-label="Search jobs">'
             f'<select id="st" name="state" aria-label="State"><option value="">All states</option>{opts}</select>'
             f'<select id="ty" name="type" aria-label="Job type"><option value="">All types</option>'
@@ -145,6 +141,7 @@ def main():
     if OUT.exists(): shutil.rmtree(OUT)
     OUT.mkdir()
     shutil.copy(ROOT / "style.css", OUT / "style.css")
+    shutil.copy(ROOT / "search.js", OUT / "search.js")
     (OUT / ".nojekyll").write_text("")
 
     by_branch = defaultdict(list)
@@ -162,8 +159,8 @@ def main():
         f'<section class="group" id="{slug(branch_label(b))}"><h2><a href="{branch_url(b)}">{e(branch_label(b))} office</a> '
         f'<span class="n">{len(by_branch[b])}</span></h2><div class="list">'
         + "".join(card(j) for j in sorted(by_branch[b], key=key)) + "</div></section>" for b in branches)
-    home_ld = '<script type="application/ld+json">' + json.dumps({"@context":"https://schema.org","@type":"WebSite",
-        "name":f"{ORG} Jobs","url":BASE+"/","publisher":{"@type":"Organization","name":ORG,"url":ORG_URL}}) + "</script>"
+    home_ld = ld({"@context":"https://schema.org","@type":"WebSite",
+        "name":f"{ORG} Jobs","url":BASE+"/","publisher":{"@type":"Organization","name":ORG,"url":ORG_URL}})
     write("/", page(f"Jobs at {ORG} | {len(jobs)} Openings Hiring Now",
         f"{len(jobs)} open jobs with {ORG} — warehouse, production, maintenance, drivers, office and more. Browse by office or location and apply online.",
         "/", f'<section class="hero"><h1>Find your next job</h1><p>{len(jobs)} temp-to-hire and direct-hire openings across {len(branches)} offices.</p></section>'
@@ -215,7 +212,7 @@ def main():
             + ('<span class="tag">Direct Hire</span>' if j["type"] == "Direct Hire" else "")
             + f'</div><div class="facts">{facts}</div><p>{e(desc_text(j))}</p>'
             f'<p>Apply online and an {ORG} recruiter will follow up with the schedule, requirements and start date.</p>'
-            f'<p><a class="btn" href="{e(apply)}" rel="noopener">Apply now</a></p>'
+            f'<p><a class="btn" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
             f'<p class="meta">Job ID {e(j["id"])} · Mention this ID when you apply.</p></article>' + more_html,
             jobposting(j, valid),
             [("Jobs","/"),(STATES.get(j["state"], j["state"]), state_url(j["state"])),(j["city"], city_url(j)),(j["title"], u)]))
