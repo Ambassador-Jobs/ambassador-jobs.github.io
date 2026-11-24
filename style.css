@@ -40,6 +40,7 @@ h2.section{font:400 22px Georgia,serif;color:var(--purple);margin:1.6rem 0 .6rem
 a.chip{font-size:13px;padding:5px 12px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.1)}
 a.chip b{color:var(--purple-mute);margin-left:.25rem}
 a.chip:hover{background:var(--purple);color:#fff}a.chip:hover b{color:var(--lime)}
+#states{margin-bottom:1.6rem}
 /* Branch groups and job cards */
 .group{margin-bottom:1.8rem}
 .group h2{font:400 22px Georgia,serif;margin:0 0 .6rem}
