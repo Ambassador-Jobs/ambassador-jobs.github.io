@@ -53,6 +53,32 @@ def desc_text(j):
     t += f" with openings for {j['openings']} people." if j["openings"] > 1 else "."
     return t
 
+def type_text(j):
+    if j["type"] == "Direct Hire":
+        return "This is a direct-hire position: you are hired directly by the employer from day one."
+    return (f"This is a temp-to-hire position: you start on assignment through {ORG}, "
+            "with the opportunity to be hired on permanently by the employer.")
+
+def sections(j):
+    """(heading, paragraph) pairs used on the job page and in the JobPosting description."""
+    where = f"{j['city']}, {j['state']}"
+    n = f" We have {j['openings']} openings for this role." if j["openings"] > 1 else ""
+    return [
+        ("About the job", f"{ORG} is hiring a {j['title']} in {where}.{n} {type_text(j)}"),
+        ("Schedule", f"Shift: {j['shift']}." if j["shift"] else "Your recruiter will go over the shift and schedule when you apply."),
+        ("Pay", f"{j['pay']}." if j["pay"] else "Pay is discussed with your recruiter during your interview."),
+        ("How to apply", f"Click Apply now and complete the {ORG} application, mentioning Job ID {j['id']}. "
+            "A recruiter will follow up with the requirements, schedule and start date."),
+        (f"About {ORG}", f"{ORG} is a staffing company that connects people with temp-to-hire and "
+            f"direct-hire jobs at employers across {N_STATES} states."),
+        ("Equal opportunity", f"{ORG} is an equal opportunity employer. All qualified applicants receive "
+            "consideration for employment without regard to race, color, religion, sex, national origin, age, "
+            "disability, veteran status or any other protected status."),
+    ]
+
+ICON = "/icon.svg"
+ORG_LD = {"@type":"Organization","name":ORG,"url":ORG_URL,"sameAs":ORG_URL,"logo":BASE+ICON}
+
 def page(title, desc, path, body, head_extra="", crumbs=None):
     bc = ""
     if crumbs:
@@ -67,7 +93,9 @@ def page(title, desc, path, body, head_extra="", crumbs=None):
 <meta name="description" content="{e(desc[:158])}">
 <link rel="canonical" href="{BASE}{path}">
 <meta property="og:title" content="{e(title)}"><meta property="og:description" content="{e(desc[:158])}">
-<meta property="og:url" content="{BASE}{path}"><meta property="og:type" content="website">
+<meta property="og:url" content="{BASE}{path}"><meta property="og:type" content="website"><meta property="og:site_name" content="{ORG} Jobs">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="{ICON}" type="image/svg+xml">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="stylesheet" href="/style.css">
@@ -101,11 +129,11 @@ def write(path, text):
 def jobposting(j, valid):
     data = {"@context":"https://schema.org/","@type":"JobPosting",
       "title": j["title"],
-      "description": f"<p>{e(desc_text(j))}</p><p>Apply online and an {ORG} recruiter will follow up with the schedule, requirements and start date.</p>",
+      "description": "".join(f"<h2>{e(h)}</h2><p>{e(t)}</p>" for h, t in sections(j)),
       "identifier": {"@type":"PropertyValue","name":ORG,"value":j["id"]},
       "datePosted": j.get("posted") or TODAY, "validThrough": valid + "T23:59:59-05:00",
       "employmentType": "FULL_TIME" if j["type"] == "Direct Hire" else ["TEMPORARY","FULL_TIME"],
-      "hiringOrganization": {"@type":"Organization","name":ORG,"sameAs":ORG_URL},
+      "hiringOrganization": {"@type":"Organization","name":ORG,"sameAs":ORG_URL,"logo":BASE+ICON},
       "jobLocation": {"@type":"Place","address":{"@type":"PostalAddress","addressLocality":j["city"],
           "addressRegion":j["state"],"addressCountry":"US", **({"postalCode":j["zip"]} if j["zip"] else {})}},
       "totalJobOpenings": j["openings"], "directApply": False, "url": BASE + job_url(j)}
@@ -127,7 +155,7 @@ def filters(jobs):
             f'<p class="count" id="n">{len(jobs)} open jobs</p>')
 
 def main():
-    global TODAY
+    global TODAY, N_STATES
     with (ROOT / "jobs.tsv").open(encoding="utf-8") as f:
         jobs = list(csv.DictReader(f, delimiter="\t"))
     TODAY = datetime.date.today().isoformat()
@@ -142,6 +170,7 @@ def main():
     OUT.mkdir()
     shutil.copy(ROOT / "style.css", OUT / "style.css")
     shutil.copy(ROOT / "search.js", OUT / "search.js")
+    shutil.copy(ROOT / "icon.svg", OUT / "icon.svg")
     for f in ROOT.glob("google*.html"):  # Google Search Console verification file(s)
         shutil.copy(f, OUT / f.name)
     (OUT / ".nojekyll").write_text("")
@@ -152,8 +181,12 @@ def main():
     by_state = defaultdict(list); by_city = defaultdict(list)
     for j in jobs:
         by_state[j["state"]].append(j); by_city[(j["state"], j["city"])].append(j)
+    N_STATES = len(by_state)
+    lastmod = {}  # url -> newest first-posted date of the jobs on that page
+    def seen(u, js):
+        lastmod[u] = max((x.get("posted") or TODAY) for x in js)
     key = lambda j: (j["state"], j["city"], j["title"])
-    urls = ["/", "/locations/"]
+    urls = ["/", "/locations/"]; seen("/", jobs); seen("/locations/", jobs)
 
     # Home: all jobs grouped by branch
     chips = "".join(f'<a class="chip" href="{branch_url(b)}">{e(branch_label(b))} <b>{len(by_branch[b])}</b></a>' for b in branches)
@@ -162,15 +195,18 @@ def main():
         f'<span class="n">{len(by_branch[b])}</span></h2><div class="list">'
         + "".join(card(j) for j in sorted(by_branch[b], key=key)) + "</div></section>" for b in branches)
     home_ld = ld({"@context":"https://schema.org","@type":"WebSite",
-        "name":f"{ORG} Jobs","url":BASE+"/","publisher":{"@type":"Organization","name":ORG,"url":ORG_URL}})
+        "name":f"{ORG} Jobs","url":BASE+"/","publisher":ORG_LD}) + ld({"@context":"https://schema.org", **ORG_LD})
+    home_states = "".join(f'<li><a href="{state_url(st)}">Jobs in {e(STATES.get(st, st))}</a> <span class="n">{len(by_state[st])}</span></li>'
+        for st in sorted(by_state, key=lambda s: STATES.get(s, s)))
     write("/", page(f"Jobs at {ORG} | {len(jobs)} Openings Hiring Now",
         f"{len(jobs)} open jobs with {ORG} — warehouse, production, maintenance, drivers, office and more. Browse by office or location and apply online.",
         "/", f'<section class="hero"><h1>Find your next job</h1><p>{len(jobs)} temp-to-hire and direct-hire openings across {len(branches)} offices.</p></section>'
-        + filters(jobs) + f'<div class="chips" id="branches">{chips}</div>' + groups + FILTER_JS, home_ld))
+        + filters(jobs) + f'<h2 class="more">Browse by office</h2><div class="chips" id="branches">{chips}</div>'
+        + f'<h2 class="more">Browse by state</h2><ul class="states">{home_states}</ul>' + groups + FILTER_JS, home_ld))
 
     # Branch pages
     for b in branches:
-        js = sorted(by_branch[b], key=key); lbl = branch_label(b); u = branch_url(b); urls.append(u)
+        js = sorted(by_branch[b], key=key); lbl = branch_label(b); u = branch_url(b); urls.append(u); seen(u, js)
         cities = sorted({f"{j['city']}, {j['state']}" for j in js})
         write(u, page(f"{lbl} Office Jobs | {ORG}",
             f"{len(js)} open jobs from the {ORG} {lbl} office in {', '.join(cities[:6])}. Apply online today.",
@@ -181,7 +217,7 @@ def main():
     # Location pages
     st_links = ""
     for st in sorted(by_state):
-        js = sorted(by_state[st], key=key); name = STATES.get(st, st); u = state_url(st); urls.append(u)
+        js = sorted(by_state[st], key=key); name = STATES.get(st, st); u = state_url(st); urls.append(u); seen(u, js)
         cities = sorted({j["city"] for j in js})
         st_links += f'<li><a href="{u}">{e(name)}</a> <span class="n">{len(js)}</span></li>'
         city_chips = "".join(f'<a class="chip" href="/locations/{st.lower()}/{slug(c)}/">{e(c)} <b>{len(by_city[(st,c)])}</b></a>' for c in cities)
@@ -191,7 +227,7 @@ def main():
             + filters(js) + '<section class="group"><div class="list">' + "".join(card(j, True) for j in js) + "</div></section>" + FILTER_JS,
             itemlist(js), [("Jobs","/"),("Locations","/locations/"),(name,u)]))
         for c in cities:
-            cj = sorted(by_city[(st,c)], key=key); cu = city_url(cj[0]); urls.append(cu)
+            cj = sorted(by_city[(st,c)], key=key); cu = city_url(cj[0]); urls.append(cu); seen(cu, cj)
             titles = sorted({j["title"] for j in cj})
             write(cu, page(f"Jobs in {c}, {st} | {ORG}",
                 f"{len(cj)} open jobs in {c}, {st}: {', '.join(titles[:6])}. Apply online with {ORG}.",
@@ -203,7 +239,7 @@ def main():
 
     # Job pages
     for j in jobs:
-        u = job_url(j); urls.append(u)
+        u = job_url(j); urls.append(u); seen(u, [j])
         where = f"{j['city']}, {j['state']}"
         facts = "".join(f"<div><b>{k}</b>{e(v)}</div>" for k, v in (("Pay", j["pay"]), ("Type", j["type"]),
             ("Shift", j["shift"]), ("Location", f"{where} {j['zip']}".strip()), ("Office", branch_label(j["branch"]))) if v)
@@ -212,21 +248,23 @@ def main():
         write(u, page(f"{j['title']} – {where} | {ORG}", desc_text(j), u,
             f'<article class="job"><h1>{e(j["title"])}</h1><div class="meta">{e(where)}'
             + ('<span class="tag">Direct Hire</span>' if j["type"] == "Direct Hire" else "")
-            + f'</div><div class="facts">{facts}</div><p>{e(desc_text(j))}</p>'
-            f'<p>Apply online and an {ORG} recruiter will follow up with the schedule, requirements and start date.</p>'
+            + f'</div><div class="facts">{facts}</div>'
             f'<p><a class="btn" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
+            + "".join(f"<h2>{e(h)}</h2><p>{e(t)}</p>" for h, t in sections(j))
+            + f'<p><a class="btn" href="{e(apply)}" rel="noopener noreferrer">Apply now</a></p>'
             f'<p class="meta">Job ID {e(j["id"])} · Mention this ID when you apply.</p></article>' + more_html,
             jobposting(j, valid),
             [("Jobs","/"),(STATES.get(j["state"], j["state"]), state_url(j["state"])),(j["city"], city_url(j)),(j["title"], u)]))
 
     write("/404.html", page(f"Page not found | {ORG}", "This job may have been filled.", "/404.html",
-        '<article class="job"><h1>This job has been filled</h1><p>Good news — there are more openings. <a href="/">See all jobs</a>.</p></article>'))
+        '<article class="job"><h1>This job has been filled</h1><p>Good news — there are more openings. <a href="/">See all jobs</a>.</p></article>',
+        '<meta name="robots" content="noindex">'))
     (OUT / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {BASE}/sitemap.xml\n")
     (OUT / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        + "".join(f"<url><loc>{BASE}{u}</loc><lastmod>{TODAY}</lastmod></url>\n" for u in urls) + "</urlset>\n")
+        + "".join(f"<url><loc>{BASE}{u}</loc><lastmod>{lastmod[u]}</lastmod></url>\n" for u in urls) + "</urlset>\n")
     feed = "".join(f"""<job><referencenumber>{e(j['id'])}</referencenumber><title>{e(j['title'])}</title><company>{ORG}</company>
 <city>{e(j['city'])}</city><state>{e(j['state'])}</state><postalcode>{e(j['zip'])}</postalcode><country>US</country>
-<url>{BASE}{job_url(j)}</url><date>{TODAY}</date><jobtype>{e(j['type'])}</jobtype><salary>{e(j['pay'])}</salary>
+<url>{BASE}{job_url(j)}</url><date>{j.get('posted') or TODAY}</date><jobtype>{e(j['type'])}</jobtype><salary>{e(j['pay'])}</salary>
 <description>{e(desc_text(j))}</description></job>
 """ for j in jobs)
     (OUT / "feed.xml").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<source><publisher>{ORG}</publisher>'
