@@ -208,13 +208,14 @@ def main():
         + "".join(card(j) for j in sorted(by_branch[b], key=key)) + "</div></section>" for b in branches)
     home_ld = ld({"@context":"https://schema.org","@type":"WebSite",
         "name":f"{ORG} Jobs","url":BASE+"/","publisher":ORG_LD}) + ld({"@context":"https://schema.org", **ORG_LD})
-    home_states = "".join(f'<li><a href="{state_url(st)}">Jobs in {e(STATES.get(st, st))}</a> <span class="n">{len(by_state[st])}</span></li>'
-        for st in sorted(by_state, key=lambda s: STATES.get(s, s)))
+    states_sorted = sorted(by_state, key=lambda s: STATES.get(s, s))
+    state_chips = "".join(f'<a class="chip" href="{state_url(st)}">{e(STATES.get(st, st))} <b>{len(by_state[st])}</b></a>'
+        for st in states_sorted)
     write("/", page(f"Jobs at {ORG} | {len(jobs)} Openings Hiring Now",
         f"{len(jobs)} open jobs with {ORG} — warehouse, production, maintenance, drivers, office and more. Browse by office or location and apply online.",
         "/", f'<h1 class="section">Find your next job</h1><p class="sub">{len(jobs)} temp-to-hire and direct-hire openings across {len(branches)} offices.</p>'
         + filters(jobs) + f'<h2 class="section">Browse by office</h2><div class="chips" id="branches">{chips}</div>'
-        + f'<h2 class="section">Browse by state</h2><ul class="states">{home_states}</ul>' + groups + FILTER_JS, home_ld))
+        + f'<h2 class="section">Browse by state</h2><div class="chips" id="states">{state_chips}</div>' + groups + FILTER_JS, home_ld))
 
     # Branch pages
     for b in branches:
@@ -227,12 +228,13 @@ def main():
             itemlist(js), [("Jobs","/"),(f"{lbl} office", u)], "offices"))
 
     # Location pages
-    st_links = ""
-    for st in sorted(by_state):
+    st_groups = ""
+    for st in states_sorted:
         js = sorted(by_state[st], key=key); name = STATES.get(st, st); u = state_url(st); urls.append(u); seen(u, js)
         cities = sorted({j["city"] for j in js})
-        st_links += f'<li><a href="{u}">{e(name)}</a> <span class="n">{len(js)}</span></li>'
         city_chips = "".join(f'<a class="chip" href="/locations/{st.lower()}/{slug(c)}/">{e(c)} <b>{len(by_city[(st,c)])}</b></a>' for c in cities)
+        st_groups += (f'<section class="group" id="{st.lower()}"><h2><a href="{u}">{e(name)}</a> <span class="n">{len(js)}</span></h2>'
+            f'<div class="chips">{city_chips}</div></section>')
         write(u, page(f"Jobs in {name} | {ORG}",
             f"{len(js)} open jobs in {name}: {', '.join(cities[:8])}. Apply online with {ORG}.",
             u, f'<h1>Jobs in {e(name)}</h1><p class="sub">{len(js)} openings in {len(cities)} cities</p><div class="chips">{city_chips}</div>'
@@ -247,7 +249,9 @@ def main():
                 + '<section class="group"><div class="grid">' + "".join(card(j, True) for j in cj) + "</div></section>",
                 itemlist(cj), [("Jobs","/"),("Locations","/locations/"),(name,u),(c,cu)], "locations"))
     write("/locations/", page(f"Jobs by Location | {ORG}", f"Browse {ORG} jobs by state and city.",
-        "/locations/", f'<h1>Jobs by location</h1><ul class="states">{st_links}</ul>', "", [("Jobs","/"),("Locations","/locations/")], "locations"))
+        "/locations/", f'<h1>Jobs by location</h1><p class="sub">{len(jobs)} openings in {len(by_state)} states and {len(by_city)} cities.</p>'
+        f'<h2 class="section">Browse by state</h2><div class="chips" id="states">{state_chips}</div>'
+        f'<h2 class="section">Cities by state</h2>{st_groups}', "", [("Jobs","/"),("Locations","/locations/")], "locations"))
 
     # Job pages
     for j in jobs:
